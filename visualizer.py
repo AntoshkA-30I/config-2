@@ -62,13 +62,16 @@ def main():
     repo_path = config['repository_path']               # Путь к анализируемому репозиторию
     output_file = config['output_file']                 # Путь к файлу-результату в виде кода
 
+    # Строим и записываем код графа
     graph = build_mermaid_graph(repo_path)
+    graph.pop(1)
     graph = "\n".join(graph)
     save_graph_to_file(graph, output_file)
 
     print(graph)
+    print(f"Путь к программе для визуализации: {visualization_path}")
+
 
 
 if __name__ == "__main__":
     main()
-
