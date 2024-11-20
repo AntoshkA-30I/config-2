@@ -49,6 +49,7 @@
 
 Результат работы программы-тестировщика:
 ![](https://github.com/AntoshkA-30I/config-2/blob/main/images/test%20program.png) 
-<br /> Ручное тестирование:
+<br /> 
+Ручное тестирование:
 ![](https://github.com/AntoshkA-30I/config-2/blob/main/images/test.png)
 ![](https://github.com/AntoshkA-30I/config-2/blob/main/images/test%20graph.png)
