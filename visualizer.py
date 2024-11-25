@@ -1,6 +1,7 @@
 import os
 import zlib
 import configparser
+import argparse
 
 
 # Функция получения данных о файлах из обьекта-дерева
@@ -45,7 +46,6 @@ def parse_tree_object(tree_hash):
     return files_info
 
 
-
 # Функция получения данных о коммите из обьекта-коммита
 def parse_commit_object(commit_hash):
     path = os.path.join('.git', 'objects', commit_hash[:2], commit_hash[2:])
@@ -63,34 +63,30 @@ def parse_commit_object(commit_hash):
     return obj_type, content
 
 
-
 # Функция обработки коммита
 def get_commit_info(commit_hash):
     obj_type, content = parse_commit_object(commit_hash)
-    print()
-    print(obj_type, content)
     if obj_type != 'commit':
         return None
     
     commit_info = {}
-    commit_info['name'] = content[-1]  # Сообщение коммита находится в последней строке
-    commit_info['files'] = {}
-    commit_info['changed_files'] = []
-    commit_info['parent'] = None
+    commit_info['name'] = content[-1]   # Сообщение коммита 
+    commit_info['files'] = {}           # Текущие файлы
+    commit_info['changed_files'] = []   # Измененные файлы
+    commit_info['parents'] = []         # Родители
 
-    # Сначала собираем информацию о файлах в текущем коммите
     for line in content:
         if line.startswith('parent'):
             parent_hash = line.split()[1]
-            commit_info['parent'] = get_commit_info(parent_hash)
+            commit_info['parents'].append(get_commit_info(parent_hash))  # Добавляем родителя в список
         elif line.startswith('tree'):
             tree_hash = line.split()[1]
             files = parse_tree_object(tree_hash)
             commit_info['files'] = files  # Сохраняем файлы и их хэши для данного коммита
 
-    # Если есть родительский коммит, сравниваем файлы
-    if commit_info['parent']:
-        parent_files = commit_info['parent']['files']
+    # Сравниваем файлы с родительскими коммитами
+    for parent in commit_info['parents']:
+        parent_files = parent['files']
         
         # Сравниваем файлы текущего коммита с файлами родительского
         for filename, current_hash in commit_info['files'].items():
@@ -105,10 +101,11 @@ def get_commit_info(commit_hash):
         for filename in parent_files:
             if filename not in commit_info['files']:
                 commit_info['changed_files'].append(filename)  # Файл удален
+
     return commit_info
 
 
-
+# Функция получения истории всех коммитов
 def get_commit_history(repo_path):
     os.chdir(repo_path)
     
@@ -117,14 +114,13 @@ def get_commit_history(repo_path):
     with open(branch_path, 'r', encoding='utf-8') as f:
         commit_hash = f.read().strip()
         commit_info = get_commit_info(commit_hash)
-        print(commit_info)
-        mermaid_output = generate_mermaid(commit_info)
-        print(mermaid_output)
+    return commit_info
 
 
-
+# Функция перевода на язык mermaid
 def generate_mermaid(commit):
     mermaid_string = "graph TD;\n"
+    visited_commits = set()  # Множество для отслеживания уже посещенных коммитов
 
     # Функция для рекурсивного обхода коммитов
     def traverse(commit):
@@ -135,33 +131,38 @@ def generate_mermaid(commit):
         # Создаем уникальный идентификатор для коммита на основе его сообщения
         commit_id = commit_message.replace(' ', '_').replace('-', '_')
 
-        # Добавляем текущий коммит в строку mermaid
-        mermaid_string += f"    {commit_id}({commit_message}\nChanged files: {changed_files})\n"
+        # Проверяем, был ли уже добавлен этот коммит
+        if commit_id not in visited_commits:
+            visited_commits.add(commit_id)  # Добавляем коммит в множество посещенных
+            # Добавляем текущий коммит в строку mermaid
+            mermaid_string += f"    {commit_id}({commit_message}\nChanged files: {changed_files})\n"
         
-        # Если есть родительский коммит, добавляем связь
-        if commit['parent']:
-            parent_message = commit['parent']['name']
-            parent_id = parent_message.replace(' ', '_').replace('-', '_')
-            mermaid_string += f"    {parent_id} --> {commit_id}\n"
-            traverse(commit['parent'])  # Рекурсивно обходим родительский коммит
+            # Если есть родительские коммиты, добавляем связи
+            for parent in commit['parents']:
+                parent_message = parent['name']
+                parent_id = parent_message.replace(' ', '_').replace('-', '_')
+                mermaid_string += f"    {parent_id} --> {commit_id}\n"
+                traverse(parent)  # Рекурсивно обходим родительский коммит
 
     traverse(commit)
     return mermaid_string
 
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument("config_path", help="Введите путь до конфигурационного файла", type=str)
+args = parser.parse_args()
 
-config_file = 'config.ini'  # Укажите путь к вашему конфигурационному файлу
-# Чтение конфигурационного файла формата INI
+config_file = args.config_path
 config = configparser.ConfigParser()
 config.read(config_file)
 
-# Извлечение пути к репозиторию
-repo_path = config.get('settings', 'repository_path', fallback=None)
-    
+repo_path = config.get('settings', 'repository_path')  # Извлечение пути к репозиторию
+
 if repo_path:
-    result = get_commit_history(repo_path)
-    print(result)
+    commit_history = get_commit_history(repo_path)
+    mermaid_output = generate_mermaid(commit_history)
+    print(mermaid_output)
+    print('Вы можете визуализировать граф здесь: ', config.get('settings', 'visualization_path'))
 else:
     print("Путь к репозиторию не найден в конфигурационном файле.")
-
