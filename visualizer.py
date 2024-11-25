@@ -1,77 +1,92 @@
-import subprocess
+import os
+import zlib
 import configparser
 
 
-# Функция чтения конфигурационного файла
-def load_config(config_path):
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    return config['settings']
+def read_object(sha, is_tree):
+    obj_type, content = None, None
+    path = os.path.join('.git', 'objects', sha[:2], sha[2:])
+    if not os.path.isfile(path):
+        return None, None
+    with open(path, 'rb') as f:
+        data = f.read()
+    data = zlib.decompress(data)
+    print()
+    print(data)
+    
+    if not is_tree:
+        header_end = data.index(b'\0')        # Извлекаем заголовок и декодируем его в строку
+        header = data[:header_end].decode()
+        obj_type, size = header.split(' ')        # Разделяем заголовок на тип и размер
+        # Извлекаем содержимое объекта, начиная с байта, следующего за нулевым байтом  # Декодируем содержимое в строку
+        content = data[header_end + 1:].decode('utf-8').splitlines()
+    else:
+        pass # чтение значений дерева #function
+    print(obj_type, content)
+    return obj_type, content
 
 
-# Функция получения списка всех коммитов с их сообщениями
-def get_git_commits(repo_path):
-    result = subprocess.run(['git', 'rev-list', '--all', '--pretty=format:%H %s'], cwd=repo_path, capture_output=True, text=True)
-    return result.stdout.splitlines()
+def get_commit_info(commit_sha):
+    obj_type, content = read_object(commit_sha, False)
+    if obj_type != 'commit':
+        return None
+    
+    commit_info = {}
+    commit_info['name'] = content[-1]  # Сообщение коммита находится в последней строке
+    commit_info['parent'] = None
+    commit_info['changed_files'] = []
+
+    for line in content:
+        if line.startswith('parent'):
+            hash = line.split()[1]
+            commit_info['parent'] = get_commit_info(hash)
+            #parent blobs hash
+        elif line.startswith('author'):
+            commit_info['author'] = line.split(' ', 2)[2]
+        elif line.startswith('tree'):
+            tree_hash = line.split()[1]
+            commit_info['changed_files'] = read_object(tree_hash, True)
+
+    return commit_info
 
 
-# Функция получения измененных файлов для конкретного коммита
-def get_files_from_commit(commit, repo_path):
-    result = subprocess.run(['git', 'diff-tree', '--no-commit-id', '--name-only', '-r', commit.split()[0]], cwd=repo_path, capture_output=True, text=True)
-    return result.stdout.splitlines()
-
-
-# Функция построения кода графа
-def build_mermaid_graph(repo_path):
-    commits = get_git_commits(repo_path)
-    graph = ["graph TD"]    # код графа
-    seen_commits = set()    # просмотреные коммиты
-
-    for commit in commits:
-        commit_hash, commit_message = commit.split(' ', 1)
-
-        # Пропускаем уже добавленные коммиты
-        if commit_hash in seen_commits: 
-            continue
-        
-        seen_commits.add(commit_hash) 
-        files = get_files_from_commit(commit, repo_path)
-        files_list = ', '.join(files) if files else "No files"
-        graph.append(f"    {commit_hash}({commit_message.strip()}: {files_list})")
-
-        # Получаем родительские коммиты
-        parent_result = subprocess.run(['git', 'rev-list', '--parents', '-n', '1', commit_hash], cwd=repo_path, capture_output=True, text=True)
-        parent_commits = parent_result.stdout.split()
-        
-        for parent in parent_commits[1:]:
-            if parent not in seen_commits:
-                graph.append(f"    {parent} --> {commit_hash}")
-
-    return graph
-
-
-# Функция сохранения кода графа в файл
-def save_graph_to_file(graph, output_file):
-    with open(output_file, 'w') as f:
-        f.write(graph)
-
-
-def main():
-    config = load_config('config.ini')                  # Конфигурационный файл
-    visualization_path = config['visualization_path']   # Путь к программе для визуализации графов
-    repo_path = config['repository_path']               # Путь к анализируемому репозиторию
-    output_file = config['output_file']                 # Путь к файлу-результату в виде кода
-
-    # Строим и записываем код графа
-    graph = build_mermaid_graph(repo_path)
-    graph.pop(1)
-    graph = "\n".join(graph)
-    save_graph_to_file(graph, output_file)
-
-    print(graph)
-    print(f"Путь к программе для визуализации: {visualization_path}")
+def get_commit_history(repo_path):
+    os.chdir(repo_path)
+    
+    # Получаем последний коммит из ветки master (или другой ветки по умолчанию)
+    branch_path = os.path.join(repo_path, '.git', 'refs', 'heads', 'master')  
+    with open(branch_path, 'r', encoding='utf-8') as f:
+        commit_sha = f.read().strip()
+        commit_info = get_commit_info(commit_sha)
+        #print(commit_info)
+        #return comp(translate(commit_info))
 
 
 
-if __name__ == "__main__":
-    main()
+
+#-------------------
+# Данные в байтовом формате
+data = b'\xd5\xa8\x19\xbd\xef\r\xe2\t9K\x10@d\xff\xf7\xa3\x1b\xc3\xd0\xaa'
+
+# Преобразование в шестнадцатеричную строку
+hex_representation = data.hex()
+print(hex_representation)
+
+print()
+print()
+#-------------------
+
+
+config_file = 'config.ini'  # Укажите путь к вашему конфигурационному файлу
+# Чтение конфигурационного файла формата INI
+config = configparser.ConfigParser()
+config.read(config_file)
+
+# Извлечение пути к репозиторию
+repo_path = config.get('settings', 'repository_path', fallback=None)
+    
+if repo_path:
+    result = get_commit_history(repo_path)
+    print(result)
+else:
+    print("Путь к репозиторию не найден в конфигурационном файле.")
